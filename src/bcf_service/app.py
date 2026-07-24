@@ -15,6 +15,7 @@ from fastapi.responses import JSONResponse
 
 from . import __version__
 from .bcf_api import router as bcf_router
+from .bcf_xml_api import router as bcf_xml_router
 from .config import Config
 from .monitoring import MONITORING_PATHS, router as monitoring_router
 
@@ -54,6 +55,7 @@ def build_app(config: Config | None = None) -> FastAPI:
 
     app.include_router(monitoring_router)
     app.include_router(bcf_router)
+    app.include_router(bcf_xml_router)
     return app
 
 
