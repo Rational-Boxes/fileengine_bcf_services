@@ -46,10 +46,11 @@ def test_unsupported_version_404():
     assert c.get("/bcf/9.9/auth").status_code == 404
 
 
-def test_data_endpoints_are_501_pending_phase_f():
+def test_data_endpoints_require_auth():
+    # Implemented in Phase F — now bearer-gated (401 without a token, not 501).
     c = TestClient(build_app(Config()))
-    assert c.get("/bcf/2.1/current-user").status_code == 501
-    assert c.get("/bcf/2.1/projects").status_code == 501
+    assert c.get("/bcf/2.1/current-user").status_code == 401
+    assert c.get("/bcf/2.1/projects").status_code == 401
 
 
 def test_monitoring_allowlist_blocks_non_listed(monkeypatch):
