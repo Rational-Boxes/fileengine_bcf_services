@@ -10,16 +10,12 @@ can layer on later (§12). ``GET /bcf/versions`` is unversioned.
 """
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException, Request
-from fastapi.responses import JSONResponse
+from fastapi import APIRouter, Depends, HTTPException, Request
 
+from .auth import Identity, current_identity
 from .config import SUPPORTED_BCF_VERSIONS
 
 router = APIRouter(prefix="/bcf")
-
-# The data endpoints a BCF Manager exercises once authenticated — all pending the
-# Phase F implementation. Listed here so the scaffold self-documents the surface.
-_PENDING = "Not implemented in the scaffold — wired in Phase F (§12)."
 
 
 def _check_version(version: str) -> None:
@@ -53,14 +49,7 @@ def auth(version: str, request: Request) -> dict:
 
 
 @router.get("/{version}/current-user")
-def current_user(version: str) -> JSONResponse:
-    """Identity of the bearer (buildingSMART /current-user). Pending OAuth wiring."""
+def current_user(version: str, ident: Identity = Depends(current_identity)) -> dict:
+    """Identity of the authenticated bearer (buildingSMART /current-user)."""
     _check_version(version)
-    return JSONResponse({"error": _PENDING}, status_code=501)
-
-
-@router.get("/{version}/projects")
-def list_projects(version: str) -> JSONResponse:
-    """Projects the caller can see — each maps to a FileEngine folder (§10). Pending."""
-    _check_version(version)
-    return JSONResponse({"error": _PENDING}, status_code=501)
+    return {"id": ident.user, "name": ident.user}

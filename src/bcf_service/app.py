@@ -13,18 +13,35 @@ import os
 from fastapi import FastAPI
 from fastapi.responses import JSONResponse
 
+from typing import Callable, Optional
+
 from . import __version__
+from .auth import make_secret_verifier
 from .bcf_api import router as bcf_router
+from .bcf_data_api import router as bcf_data_router
+from .bcf_xml_api import router as bcf_xml_router
 from .config import Config
 from .monitoring import MONITORING_PATHS, router as monitoring_router
+from .stores import BcfStore
 
 log = logging.getLogger("bcf_service.app")
 
 
-def build_app(config: Config | None = None) -> FastAPI:
+def build_app(
+    config: Config | None = None,
+    *,
+    store: Optional[BcfStore] = None,
+    verify_bearer: Optional[Callable] = None,
+) -> FastAPI:
     config = config or Config()
     app = FastAPI(title="bcf_service", version=__version__)
     app.state.config = config
+    # Issue store (in-memory dev/test impl; discussion-backed comment_store + BCF
+    # projection tables in production, §13) and the bearer verifier (config HS256
+    # secret by default; tests inject an identity).
+    app.state.store = store or BcfStore()
+    app.state.verify_bearer = verify_bearer or make_secret_verifier(
+        config.jwt_secret, default_tenant=config.tenant)
 
     # Route-scoped IP allowlist for the unauthenticated monitoring endpoints. They
     # already bind loopback; when FILEENGINE_MONITORING_ALLOW_IPS is set
@@ -54,6 +71,8 @@ def build_app(config: Config | None = None) -> FastAPI:
 
     app.include_router(monitoring_router)
     app.include_router(bcf_router)
+    app.include_router(bcf_data_router)
+    app.include_router(bcf_xml_router)
     return app
 
 

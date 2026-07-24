@@ -10,21 +10,29 @@ substrate (reached through the shared `comment_store` interface); this service o
 only the BCF *projection* tables (`bcf_project`, `bcf_topic`, `bcf_viewpoint`,
 `bcf_guid_map`) in the same per-tenant schema. "Many doors, one core."
 
-## Status — scaffold
+## Status
 
 Implemented:
 - App factory + config (env-driven, `FILEENGINE_*` shared names, `BCF_*` knobs).
 - Loopback health endpoints (`/healthz`, `/readyz`) with the monitoring IP allowlist.
 - BCF-API **discovery**: `GET /bcf/versions`, `GET /bcf/{v}/auth` (OAuth 2.0 discovery
-  pointing at ldap_manager / Phase 1.7), version guard.
+  → ldap_manager / Phase 1.7), `GET /bcf/{v}/current-user`.
+- **Bearer auth** (self-contained HS256, pinned; shared `FILEENGINE_JWT_SECRET`) —
+  every data route acts under the caller's identity.
+- **BCF-XML round-trip** (Phase E / §11): the `.bcfzip` codec + `POST
+  /bcf/{v}/bcf-xml/{export,import}`.
+- **Foundational BCF-API data endpoints** (Phase F / §12): projects (+ extensions),
+  topics, comments, and viewpoints (+ snapshot) CRUD — over an in-memory store.
 - The per-tenant BCF projection **DDL** (`store.tenant_ddl`).
 
-Pending (Phase F):
-- Authenticated data endpoints: projects / topics / comments / viewpoints.
-- Extraction of the shared `comment_store` interface from the discussion service so
-  BCF writes go through one guarded path (ACL, FTS, mentions, event emission).
-- OAuth2/JWKS bearer verification; live connection + CRUD adapter; BCF-XML round-trip
-  handoff (Phase E) → live API (this service).
+Pending:
+- Swap the in-memory `BcfStore` for the production split (§13): a psycopg BCF
+  projection store + the shared `comment_store` extracted from the discussion
+  service, so topic/comment writes go through one guarded path (ACL/FTS/mentions/
+  events) and fan out live. Persist BCF-XML imports (upsert-by-guid).
+- OAuth2/JWKS bearer verification (beyond the shared HS256 secret); defusedxml
+  hardening of `.bcfzip` parsing; extended endpoints (document_references,
+  related_topics, events); the SPA Import/Export BCF action.
 
 ## Run
 
