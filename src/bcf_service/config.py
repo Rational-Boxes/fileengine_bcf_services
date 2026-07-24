@@ -103,6 +103,13 @@ class Config:
         self.jwt_secret = _env("FILEENGINE_JWT_SECRET", "")
         self.ldap_manager_url = _first("LDAP_MANAGER_URL", "FILEENGINE_LDAP_MANAGER_URL",
                                        "http://localhost:8093")
+        # Gateway key:secret door (scope "bcf"): a non-interactive service credential
+        # verified via ldap_manager's /internal/service-cred/verify, guarded by this
+        # shared secret (falls back to MFA_INTERNAL_SECRET so ops manage one). When
+        # unset, the Basic key:secret path is disabled and only Bearer auth works.
+        self.service_cred_internal_secret = _first(
+            "SERVICE_CRED_INTERNAL_SECRET", "MFA_INTERNAL_SECRET", "")
+        self.service_cred_scope = "bcf"
         self.oauth_auth_url = _first(
             "BCF_OAUTH_AUTH_URL", "") or f"{self.ldap_manager_url}/oauth/authorize"
         self.oauth_token_url = _first(

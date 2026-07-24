@@ -32,6 +32,7 @@ import hashlib
 import hmac
 import json
 import time
+import urllib.request
 from dataclasses import dataclass, field
 from typing import List, Optional
 
@@ -105,15 +106,67 @@ def make_secret_verifier(secret: str, *, default_tenant: str = "default"):
     return verify
 
 
+def make_service_cred_verifier(ldap_manager_url: str, internal_secret: str, *,
+                               scope: str = "bcf", default_tenant: str = "default",
+                               timeout: float = 3.0):
+    """A verify_basic(key_id, secret, tenant, source_ip) -> Identity|None backed by a
+    ``bcf``-scoped ``key:secret`` service credential (the gateway/non-interactive
+    door). Delegates to ldap_manager's ``/internal/service-cred/verify`` — the SAME
+    server-to-server API the WebDAV and MCP doors use — guarded by the shared
+    ``SERVICE_CRED_INTERNAL_SECRET``. The credential carries no roles, so the caller
+    acts as a plain member of its tenant (reads/writes still run through ACLs)."""
+    url = ldap_manager_url.rstrip("/") + "/internal/service-cred/verify"
+
+    def verify(key_id: str, secret: str, tenant: str, source_ip: Optional[str] = None) -> Optional[Identity]:
+        if not key_id or not secret:
+            return None
+        payload = {
+            "key_id": key_id, "secret": secret,
+            "tenant": tenant or default_tenant, "scope": scope,
+        }
+        if source_ip:
+            payload["source_ip"] = source_ip
+        req = urllib.request.Request(
+            url, data=json.dumps(payload).encode("utf-8"), method="POST",
+            headers={"Content-Type": "application/json", "X-Internal-Auth": internal_secret})
+        try:
+            with urllib.request.urlopen(req, timeout=timeout) as resp:
+                if resp.status != 200:
+                    return None
+                body = json.loads(resp.read().decode("utf-8"))
+        except Exception:
+            return None  # bad credential (401), verifier down, or network error → deny
+        uid = body.get("uid")
+        if not uid:
+            return None
+        return Identity(user=uid, tenant=body.get("tenant") or tenant or default_tenant, roles=[])
+    return verify
+
+
 def current_identity(request: Request) -> Identity:
-    """FastAPI dependency: the authenticated caller, or 401. Uses the verifier on
-    ``app.state.verify_bearer`` (config-secret in prod; a fake in tests)."""
+    """FastAPI dependency: the authenticated caller, or 401. Accepts EITHER a
+    ``Bearer`` token (OAuth / the WebUI session JWT — ``app.state.verify_bearer``)
+    or ``Basic key:secret`` (a ``bcf``-scoped gateway service credential —
+    ``app.state.verify_basic``, when configured). Tests inject either verifier."""
     header = request.headers.get("authorization", "")
-    if not header.lower().startswith("bearer "):
-        raise HTTPException(status_code=401, detail="authentication required")
-    token = header[7:].strip()
-    verify = getattr(request.app.state, "verify_bearer", None)
-    ident = verify(token) if verify else None
+    scheme, _, rest = header.partition(" ")
+    scheme = scheme.strip().lower()
+    ident: Optional[Identity] = None
+
+    if scheme == "bearer":
+        verify = getattr(request.app.state, "verify_bearer", None)
+        ident = verify(rest.strip()) if verify else None
+    elif scheme == "basic":
+        verify_basic = getattr(request.app.state, "verify_basic", None)
+        if verify_basic:
+            try:
+                raw = base64.b64decode(rest.strip()).decode("utf-8")
+                key_id, _, secret = raw.partition(":")
+            except Exception:
+                key_id = secret = ""
+            source_ip = request.client.host if request.client else None
+            ident = verify_basic(key_id, secret, request.headers.get("x-tenant", ""), source_ip)
+
     if ident is None or not ident.user:
-        raise HTTPException(status_code=401, detail="invalid or expired token")
+        raise HTTPException(status_code=401, detail="authentication required")
     return ident

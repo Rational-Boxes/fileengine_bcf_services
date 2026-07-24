@@ -119,8 +119,39 @@ def test_import_invalid_zip_raises():
 
 # --------------------------- endpoints ------------------------------------- #
 
+from bcf_service.auth import Identity  # noqa: E402
+
+AUTH = {"Authorization": "Bearer test"}
+
+
 def _client() -> TestClient:
-    return TestClient(build_app(Config()))
+    # The BCF-XML endpoints are auth-gated (like the data endpoints); inject a fake
+    # bearer verifier so the round-trip tests authenticate.
+    return TestClient(build_app(Config(), verify_bearer=lambda t: Identity(user="alice", roles=["users"])))
+
+
+def test_xml_endpoints_require_auth():
+    # No credential → 401 before the handler runs (closes the pre-Phase-F hole).
+    anon = TestClient(build_app(Config(), verify_bearer=lambda t: None))
+    assert anon.post("/bcf/2.1/bcf-xml/export", json={"topics": []}).status_code == 401
+    assert anon.post("/bcf/2.1/bcf-xml/import", content=b"x").status_code == 401
+
+
+def test_export_accepts_a_bcf_service_credential():
+    # Gateway key:secret (Basic, scope "bcf") — a verify_basic returning an identity.
+    seen = {}
+
+    def verify_basic(key_id, secret, tenant, source_ip=None):
+        seen.update(key_id=key_id, secret=secret, tenant=tenant)
+        return Identity(user="svc", tenant=tenant or "default", roles=[])
+
+    c = TestClient(build_app(Config(), verify_basic=verify_basic))
+    import base64 as _b64
+    basic = _b64.b64encode(b"fek_abc:fesks_xyz").decode()
+    r = c.post("/bcf/2.1/bcf-xml/export", json={"topics": []},
+               headers={"Authorization": f"Basic {basic}", "X-Tenant": "acme"})
+    assert r.status_code == 200
+    assert seen == {"key_id": "fek_abc", "secret": "fesks_xyz", "tenant": "acme"}
 
 
 def test_export_then_import_endpoints_roundtrip():
@@ -136,13 +167,13 @@ def test_export_then_import_endpoints_roundtrip():
             }],
         }],
     }
-    r = c.post("/bcf/2.1/bcf-xml/export", json=payload)
+    r = c.post("/bcf/2.1/bcf-xml/export", headers=AUTH, json=payload)
     assert r.status_code == 200
     assert r.headers["content-type"] == "application/octet-stream"
     archive = r.content
 
     # Import the archive back → decoded topics (snapshot re-emitted as base64).
-    r2 = c.post("/bcf/2.1/bcf-xml/import", content=archive)
+    r2 = c.post("/bcf/2.1/bcf-xml/import", headers=AUTH, content=archive)
     assert r2.status_code == 200
     body = r2.json()
     assert body["persisted"] is False
@@ -155,9 +186,9 @@ def test_export_then_import_endpoints_roundtrip():
 
 def test_export_unsupported_version_404():
     c = _client()
-    assert c.post("/bcf/9.9/bcf-xml/export", json={"topics": []}).status_code == 404
+    assert c.post("/bcf/9.9/bcf-xml/export", headers=AUTH, json={"topics": []}).status_code == 404
 
 
 def test_import_bad_archive_400():
     c = _client()
-    assert c.post("/bcf/2.1/bcf-xml/import", content=b"garbage").status_code == 400
+    assert c.post("/bcf/2.1/bcf-xml/import", headers=AUTH, content=b"garbage").status_code == 400

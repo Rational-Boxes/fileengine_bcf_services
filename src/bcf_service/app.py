@@ -31,7 +31,7 @@ from fastapi.responses import JSONResponse
 from typing import Callable, Optional
 
 from . import __version__
-from .auth import make_secret_verifier
+from .auth import make_secret_verifier, make_service_cred_verifier
 from .bcf_api import router as bcf_router
 from .bcf_data_api import router as bcf_data_router
 from .bcf_xml_api import router as bcf_xml_router
@@ -47,6 +47,7 @@ def build_app(
     *,
     store: Optional[BcfStore] = None,
     verify_bearer: Optional[Callable] = None,
+    verify_basic: Optional[Callable] = None,
 ) -> FastAPI:
     config = config or Config()
     app = FastAPI(title="bcf_service", version=__version__)
@@ -57,6 +58,17 @@ def build_app(
     app.state.store = store or BcfStore()
     app.state.verify_bearer = verify_bearer or make_secret_verifier(
         config.jwt_secret, default_tenant=config.tenant)
+    # Gateway key:secret door (scope "bcf"): enabled only when the internal secret is
+    # configured. Tests may inject a fake verify_basic directly. When neither is set,
+    # Basic auth is unavailable and only Bearer (OAuth / WebUI session) is accepted.
+    if verify_basic is not None:
+        app.state.verify_basic = verify_basic
+    elif config.service_cred_internal_secret and config.ldap_manager_url:
+        app.state.verify_basic = make_service_cred_verifier(
+            config.ldap_manager_url, config.service_cred_internal_secret,
+            scope=config.service_cred_scope, default_tenant=config.tenant)
+    else:
+        app.state.verify_basic = None
 
     # Route-scoped IP allowlist for the unauthenticated monitoring endpoints. They
     # already bind loopback; when FILEENGINE_MONITORING_ALLOW_IPS is set

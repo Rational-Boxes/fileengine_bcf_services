@@ -28,9 +28,10 @@ from __future__ import annotations
 
 import base64
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import JSONResponse, Response
 
+from .auth import Identity, current_identity
 from .bcf_xml import export_bcfzip, import_bcfzip
 from .config import SUPPORTED_BCF_VERSIONS
 
@@ -43,7 +44,8 @@ def _check_version(version: str) -> None:
 
 
 @router.post("/{version}/bcf-xml/export")
-async def bcf_xml_export(version: str, request: Request) -> Response:
+async def bcf_xml_export(version: str, request: Request,
+                         ident: Identity = Depends(current_identity)) -> Response:
     _check_version(version)
     body = await request.json()
     topics = body.get("topics") or []
@@ -61,7 +63,8 @@ async def bcf_xml_export(version: str, request: Request) -> Response:
 
 
 @router.post("/{version}/bcf-xml/import")
-async def bcf_xml_import(version: str, request: Request) -> JSONResponse:
+async def bcf_xml_import(version: str, request: Request,
+                         ident: Identity = Depends(current_identity)) -> JSONResponse:
     _check_version(version)
     data = await request.body()
     try:
