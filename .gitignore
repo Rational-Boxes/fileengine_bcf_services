@@ -12,3 +12,9 @@ venv/
 .pytest_cache/
 .coverage
 htmlcov/
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
