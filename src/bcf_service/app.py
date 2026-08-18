@@ -100,6 +100,12 @@ def build_app(
     app.include_router(bcf_router)
     app.include_router(bcf_data_router)
     app.include_router(bcf_xml_router)
+    # Prometheus scrape endpoint, guarded by the same allowlist as the other
+    # monitoring routes. Reports process and per-thread state so a stuck or
+    # leaking service is visible to the same scraper that watches the core.
+    from . import metrics as _fe_metrics
+    _fe_metrics.install(app, "bcf_service", [], {"version": str(__version__)})
+
     return app
 
 
